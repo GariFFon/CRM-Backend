@@ -1,13 +1,17 @@
 /**
- * In-process send queue — replaces BullMQ so no Redis is needed.
+ * In-process send queue — no Redis, no HTTP round-trips needed.
  *
- * Architecture is identical to the BullMQ version:
- *   launchCampaign() → enqueue jobs → worker picks them up → POST /channel/send
- *   Channel stub fires async callbacks → POST /api/receipts → stats updated
+ * Architecture:
+ *   launchCampaign() → enqueue jobs → worker picks them up
+ *     → processChannelSend() called directly (no HTTP)
+ *     → simulateDelivery() fires async callbacks → POST /api/receipts → stats updated
  *
- * The queue runs fully in-memory inside the same Node.js process.
- * Concurrency, retry with exponential backoff, and error logging are all preserved.
+ * Calling processChannelSend() directly (instead of POST /channel/send)
+ * eliminates the SELF_URL dependency that caused messages to stay "Queued"
+ * in production environments like Render where localhost doesn't resolve.
  */
+
+import { processChannelSend } from '../channel/sendMessage.js';
 
 export interface SendJob {
   messageId: string;
@@ -21,16 +25,12 @@ export interface SendJob {
 
 // ─── Simple async in-process queue ───────────────────────────────────────────
 
-const CONCURRENCY = 15;        // process up to 15 messages in parallel
-const MAX_ATTEMPTS = 3;        // retry failed sends up to 3 times
-const BASE_BACKOFF_MS = 2000;  // exponential backoff: 2s, 4s, 8s
+const CONCURRENCY = 15;       // process up to 15 messages in parallel
+const MAX_ATTEMPTS = 3;       // retry failed sends up to 3 times
+const BASE_BACKOFF_MS = 2000; // exponential backoff: 2s, 4s, 8s
 
 let activeWorkers = 0;
 const jobQueue: SendJob[] = [];
-
-const CHANNEL_URL = process.env.SELF_URL
-  ? `${process.env.SELF_URL}/channel/send`
-  : 'http://localhost:3001/channel/send';
 
 /**
  * Public API: add a batch of send jobs.
@@ -49,7 +49,7 @@ export const sendQueue = {
 
 export function startSendWorker() {
   // With the in-process queue, the "worker" is just drainQueue().
-  // This function exists for API compatibility with the BullMQ version.
+  // This function exists for API compatibility with the original BullMQ version.
   console.log('🚀 In-process send worker ready (concurrency: ' + CONCURRENCY + ')');
 }
 
@@ -72,30 +72,15 @@ function drainQueue() {
 
 async function processJob(job: SendJob, attempt = 1): Promise<void> {
   try {
-    const response = await fetch(CHANNEL_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        messageId:        job.messageId,
-        campaignId:       job.campaignId,
-        channel:          job.channel,
-        recipientContact: job.recipientContact,
-        messageBody:      job.messageBody,
-        customerId:       job.customerId,
-        customerName:     job.customerName,
-      }),
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`Channel send failed: ${response.status} ${text}`);
-    }
-
+    // Call the channel send logic directly — no HTTP round-trip needed
+    await processChannelSend(job);
     console.log(`✅ Message sent: ${job.messageId?.slice(0, 8)}...`);
   } catch (err) {
     if (attempt < MAX_ATTEMPTS) {
       const delay = BASE_BACKOFF_MS * Math.pow(2, attempt - 1);
-      console.warn(`⚠️  Send attempt ${attempt} failed for ${job.messageId?.slice(0, 8)}..., retrying in ${delay}ms`);
+      console.warn(
+        `⚠️  Send attempt ${attempt} failed for ${job.messageId?.slice(0, 8)}..., retrying in ${delay}ms`
+      );
       await sleep(delay);
       return processJob(job, attempt + 1);
     }
