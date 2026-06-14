@@ -87,7 +87,7 @@ export const campaigns = pgTable('campaigns', {
   name: text('name').notNull(),
   segmentId: uuid('segment_id')
     .notNull()
-    .references(() => segments.id),
+    .references(() => segments.id, { onDelete: 'cascade' }),
   channel: channelEnum('channel').notNull(),
   messageTemplate: text('message_template').notNull(),
   status: campaignStatusEnum('status').notNull().default('draft'),
