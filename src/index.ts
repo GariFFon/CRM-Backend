@@ -58,7 +58,7 @@ app.notFound((c) =>
 
 const PORT = parseInt(process.env.PORT ?? '3001');
 
-// Start BullMQ worker
+// Start in-process send worker
 startSendWorker();
 
 serve({ fetch: app.fetch, port: PORT }, () => {

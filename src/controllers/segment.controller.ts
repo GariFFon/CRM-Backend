@@ -24,6 +24,18 @@ export async function getOne(c: Context) {
   return c.json({ success: true, data: segment });
 }
 
+export async function update(c: Context) {
+  const id = c.req.param('id')!;
+  const body = await c.req.json<{
+    name: string;
+    description?: string;
+    rules: SegmentRules;
+  }>();
+
+  const segment = await segmentService.updateSegment(id, body);
+  return c.json({ success: true, data: segment });
+}
+
 export async function preview(c: Context) {
   const id = c.req.param('id')!;
   const segment = await segmentService.getSegmentById(id);

@@ -116,6 +116,28 @@ export async function createSegment(data: {
   return segment;
 }
 
+export async function updateSegment(id: string, data: {
+  name: string;
+  description?: string;
+  rules: SegmentRules;
+}) {
+  await getSegmentById(id); // ensure exists
+  const preview = await previewSegment(data.rules);
+
+  const [segment] = await db
+    .update(segments)
+    .set({
+      name: data.name,
+      description: data.description,
+      rules: data.rules as any,
+      customerCount: preview.count,
+    })
+    .where(eq(segments.id, id))
+    .returning();
+
+  return segment;
+}
+
 export async function getAllSegments() {
   return db.select().from(segments).orderBy(desc(segments.createdAt));
 }

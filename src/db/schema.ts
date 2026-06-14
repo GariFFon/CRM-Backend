@@ -20,6 +20,8 @@ export const campaignStatusEnum = pgEnum('campaign_status', [
   'completed',
 ]);
 
+export const deliveryModeEnum = pgEnum('delivery_mode', ['simulate', 'live']);
+
 export const messageStatusEnum = pgEnum('message_status', [
   'queued',
   'sent',
@@ -89,6 +91,7 @@ export const campaigns = pgTable('campaigns', {
   channel: channelEnum('channel').notNull(),
   messageTemplate: text('message_template').notNull(),
   status: campaignStatusEnum('status').notNull().default('draft'),
+  deliveryMode: deliveryModeEnum('delivery_mode').notNull().default('simulate'),
   launchedAt: timestamp('launched_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true })
     .notNull()

@@ -18,6 +18,7 @@ export async function createCampaign(data: {
   segmentId: string;
   channel: 'whatsapp' | 'sms' | 'email' | 'rcs';
   messageTemplate: string;
+  deliveryMode?: 'simulate' | 'live';
 }) {
   // Validate segment exists
   await getSegmentById(data.segmentId);
@@ -30,6 +31,7 @@ export async function createCampaign(data: {
       channel: data.channel,
       messageTemplate: data.messageTemplate,
       status: 'draft',
+      deliveryMode: data.deliveryMode ?? 'simulate',
     })
     .returning();
 
@@ -151,7 +153,7 @@ export async function launchCampaign(campaignId: string) {
     .set({ status: 'active', launchedAt: new Date() })
     .where(eq(campaigns.id, campaignId));
 
-  // Push each message to the BullMQ send queue
+  // Push each message to the in-process send queue
   const jobs = messageRows.map((msg) => ({
     name: 'send-message',
     data: {
@@ -172,6 +174,66 @@ export async function launchCampaign(campaignId: string) {
     messagesQueued: messageRows.length,
     status: 'active',
   };
+}
+
+// ─── Retry stuck queued messages ─────────────────────────────────────────────
+
+export async function retryCampaign(campaignId: string) {
+  const campaign = await getCampaignById(campaignId);
+
+  if (campaign.status !== 'active') {
+    throw AppError.badRequest(`Campaign is ${campaign.status}. Only active campaigns can be retried.`);
+  }
+
+  // Find all messages still stuck at "queued"
+  const stuckMessages = await db
+    .select({
+      id: messages.id,
+      channel: messages.channel,
+      recipientContact: messages.recipientContact,
+      messageBody: messages.messageBody,
+      customerId: messages.customerId,
+    })
+    .from(messages)
+    .where(sql`campaign_id = ${campaignId}::uuid AND status = 'queued'`);
+
+  if (stuckMessages.length === 0) {
+    return { campaignId, retried: 0, message: 'No stuck messages found.' };
+  }
+
+  // Re-queue them all
+  const jobs = stuckMessages.map((msg) => ({
+    name: 'send-message',
+    data: {
+      messageId: msg.id,
+      campaignId,
+      channel: msg.channel,
+      recipientContact: msg.recipientContact,
+      messageBody: msg.messageBody,
+      customerId: msg.customerId,
+      customerName: '',
+    },
+  }));
+
+  await sendQueue.addBulk(jobs);
+
+  return { campaignId, retried: stuckMessages.length, status: 'requeued' };
+}
+
+export async function deleteCampaign(campaignId: string) {
+  // Check if campaign exists
+  const campaign = await getCampaignById(campaignId);
+
+  // Delete messages first (cascade usually handles this, but Drizzle without cascade needs explicit delete)
+  await db.delete(messages).where(eq(messages.campaignId, campaignId));
+  
+  // Delete stats
+  await db.delete(campaignStats).where(eq(campaignStats.campaignId, campaignId));
+
+  // Delete campaign
+  await db.delete(campaigns).where(eq(campaigns.id, campaignId));
+
+  return { success: true, id: campaignId };
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

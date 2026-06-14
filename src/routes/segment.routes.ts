@@ -7,6 +7,7 @@ router.get('/', ctrl.list);
 router.post('/', ctrl.create);
 router.post('/preview-rules', ctrl.previewRules);   // preview without saving
 router.get('/:id', ctrl.getOne);
+router.put('/:id', ctrl.update);
 router.get('/:id/preview', ctrl.preview);           // preview with saved segment
 router.delete('/:id', ctrl.remove);
 
