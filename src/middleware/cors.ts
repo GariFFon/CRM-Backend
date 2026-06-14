@@ -6,7 +6,14 @@ export const corsMiddleware = cors({
       process.env.FRONTEND_URL ?? 'http://localhost:3000',
       'http://localhost:3000',
       'http://localhost:3001',
+      'https://crm-frontend-kappa-plum.vercel.app'
     ];
+    
+    // Allow vercel preview deployments
+    if (origin && origin.endsWith('.vercel.app')) {
+      return origin;
+    }
+
     return allowed.includes(origin) ? origin : allowed[0];
   },
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
