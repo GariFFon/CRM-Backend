@@ -31,3 +31,12 @@ export async function generateInsights(c: Context) {
   const insights = await aiService.aiGenerateInsights(campaignId);
   return c.json({ success: true, data: { insights } });
 }
+
+export async function preLaunchInsights(c: Context) {
+  const { segmentId, channel } = await c.req.json<{ segmentId: string; channel: string }>();
+  if (!segmentId?.trim() || !channel?.trim()) {
+    return c.json({ success: false, error: 'segmentId and channel are required' }, 400);
+  }
+  const insights = await aiService.aiPreLaunchInsights({ segmentId, channel });
+  return c.json({ success: true, data: insights });
+}
